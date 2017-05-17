@@ -1,8 +1,7 @@
 #lang racket
 (require (for-syntax racket/syntax
                      syntax/parse
-                     syntax/transformer
-                     debug-scopes))
+                     syntax/transformer))
 
 (define-syntax valueof
   (syntax-parser
@@ -63,6 +62,9 @@
 (commands
  (VAR x 100 'runtime)
  (displayln (valueof x))
- (SET x 50)
+ (SET x 80)
  (displayln (valueof x))
+ (SET x 60)
+ (displayln (valueof x))
+ (displayln x)
  )
