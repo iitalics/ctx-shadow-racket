@@ -7,96 +7,126 @@
 (define-base-type Int)
 (define-base-type Bool)
 (define-type-constructor × #:arity = 2)
+(define-type-constructor Lin #:arity = 1)
 
+(define-type-constructor L* #:arity = 2)
+(define-type-constructor L& #:arity = 2)
+(define-type-constructor LVar  #:arity = 1)
+(define-type-constructor LVarI #:arity = 1)
+(define-base-type L1)
+(define-base-type L0)
 
 (begin-for-syntax
   (require syntax/parse)
 
-  (define-syntax-class typed
-    (pattern e
-             #:with type (syntax-property #'e ':)))
+
+  #|
+
+  . ⊢ (a + ~b) * (b + ~a)    => OK
+
+  |#
 
 
+  (define l-eval (current-type-eval))
 
-  (define (expand+cont e [cb (lambda (x) x)])
-    (local-expand (syntax-property e 'continue cb)
-                  'expression
-                  '()))
+  (define (verify l ctx)
+    (printf "verify: ~a ⊢ ~a\n" (map type->str ctx) (type->str l))
+    (syntax-parse l
+      ; * (then)
+      [(~L* ~L1 b)
+       (verify #'b ctx)]
+      [(~L* x b) #:when (or (LVar? #'x)
+                            (LVarI? #'x))
+       (verify #'b (cons #'x ctx))]
+      [(~L* (~L& a b) c)
+       (and (verify (l-eval #'(L* a c)) ctx)
+            (verify (l-eval #'(L* b c)) ctx))]
+      [(~L* (~L* a b) c)
+       (verify (l-eval #'(L* a (L* b c))) ctx)]
 
-  (define (call-cont src-stx #:expa e- #:type [t #f])
-    (define cb (or (syntax-property src-stx 'continue)
-                   (lambda (x) x)))
-    (cb (if t
-            (syntax-property e- ': ((current-type-eval) t))
-            e-)))
+      ; * (and)
+      [(~L& a b)
+       (and (verify #'a ctx)
+            (verify #'b ctx))]
 
-  (define (expands+cont exprs cb)
-    (syntax-parse exprs
-      [() (cb '())]
-      [(e . es)
-       (expand+cont #'e
-                    (lambda (e-)
-                      (expands+cont #'es
-                                    (lambda (es-)
-                                      (cb (cons e- es-))))))]))
+      ; var
+      [(~or (~LVar _) (~LVarI _))
+       (verify (l-eval #'L1) (cons l ctx))]
+
+      ; unit
+      [~L1 (balanced? ctx)]
+      [~L0 #f]
+
+      [_ (error (format "bad form: ~a"
+                        (type->str l)))]))
+
+  (define (balanced? ctx)
+    (cond
+      [(null? ctx) #t]
+      [else
+       (let ([p (lambda (l)
+                  (syntax-parse (list (car ctx) l)
+                    [(~or ((~LVar x) (~LVarI y))
+                          ((~LVarI x) (~LVar y)))
+                     (printf "~a vs ~a\n" #'x #'y)
+                     (free-identifier=? #'x #'y)]
+                    [_ #f]))])
+         (and (ormap p (cdr ctx))
+              (balanced? (remf p ctx))))]))
 
   )
 
 
-(define-syntax datum
-  (syntax-parser
-    [(_ . k:integer)
-     (call-cont #:expa #''k
-                #:type #'Int
-                this-syntax)]
-
-    [(_ . k:boolean)
-     (call-cont #:expa #''k
-                #:type #'Bool
-                this-syntax)]))
+(define-typed-syntax ty/datum
+  [(_ . k:integer) ≫
+   --------
+   [⊢ 'k (⇒ : Int) (⇒ lin L1)]]
+  [(_ . k:boolean) ≫
+   --------
+   [⊢ 'k (⇒ : Bool) (⇒ lin L1)]]
+  )
 
 
-(define-syntax tup
-  (syntax-parser
-    [(_ e1 e2)
-     #:with s this-syntax
-     (expands+cont #'(e1 e2)
-                   (syntax-parser
-                     [(e1-:typed e2-:typed)
-                      (call-cont #:expa #'(#%app list e1- e2-)
-                                 #:type #'(× e1-.type e2-.type)
-                                 #'s)]))]))
+(define-typed-syntax ty/let
+  [(_ (x:id rhs) e) ≫
+   [⊢ rhs ≫ rhs- (⇒ : τ) (⇒ lin l1)]
+   #:with x* (mk-type #'x)
+   [[x ≫ x-
+         : τ
+         lin (LVar x*)]
+    ⊢ e ≫ e- (⇒ : σ) (⇒ lin l2)]
+   #:with x-* (mk-type #'x-)
+   --------
+   [⊢ (let- ([x- rhs-]) e-)
+      (⇒ : σ)
+      (⇒ lin (L* (L* l1 l2)
+                 (LVarI x-*)))]])
 
-(define-syntax top-interact
-  (syntax-parser
-    [(_ . e)
-     (expand+cont #'e
-                  (syntax-parser
-                    [e-:typed
-                     #:with t2s (type->str #'e-.type)
-                     #'(#%app printf "~a : ~a\n"
-                              e-
-                              't2s)]))]))
+
+(define-typed-syntax (top-interact . e) ≫
+  [⊢ e ≫ e-
+         (⇒ : τ)
+         (⇒ lin l)]
+  #:with t->s (type->str #'τ)
+  #:with l->s (type->str #'l)
+  --------
+  [≻ (#%app- printf "~a : ~a\nlinear: ~a => ~a\n"
+             e-
+             't->s
+             'l->s
+             '#,(if (verify #'l '())
+                    "ok"
+                    "FAILED"))])
+
 
 (define-syntax mod-begin
   (syntax-parser
-    [(_ . es)
-     #:with s this-syntax
-     #:with (_ _ e-:typed ...)
-     (expands+cont #'es
-                   (syntax-parser
-                     [(e- ...)
-                      #'(lambda () e- ...)]))
-     #:with (t2s ...) (map type->str
-                           (syntax-e #'(e-.type ...)))
-     #'(#%module-begin
-        (printf "~a : ~a\n"
-                e- 't2s) ...)]))
+    [_ #'(#%module-begin)]))
 
 
-
-(provide (type-out Int)
-         (rename-out [datum #%datum]
+(provide (type-out Int Bool ×)
+         (rename-out [ty/datum #%datum]
+                     [ty/let let]
+                     #;[ty/tup tup]
                      [top-interact #%top-interaction]
-                     [mod-begin #%module-begin]
-                     [tup tup]))
+                     [mod-begin #%module-begin]))
