@@ -4,10 +4,12 @@
                      ))
 
 
+(define-base-type Unit)
 (define-base-type Int)
 (define-base-type Bool)
 (define-type-constructor × #:arity = 2)
 (define-type-constructor Lin #:arity = 1)
+(define-type-constructor → #:arity = 2)
 
 (define-base-type LUnit)
 (define-type-constructor L× #:arity > 0)
@@ -59,14 +61,14 @@
          (hash-set ctx (get-prop var '#%lin-uniq) var)]
         [(~LVar ~DOWN)
          (unless (hash-has-key? ctx (get-prop var '#%lin-uniq))
-           (raise-syntax-error #f (format "linear variable ~a used more than once"
+           (raise-syntax-error #f (format "linear variable ~a may be used more than once"
                                           (syntax-e (get-prop var '#%lin-orig)))
                                (get-prop var '#%lin-orig)))
          (hash-remove ctx (get-prop var '#%lin-uniq))]))
 
     (define (finished ctx)
       (for ([var (in-hash-values ctx)])
-        (raise-syntax-error #f (format "linear variable ~a unused"
+        (raise-syntax-error #f (format "linear variable ~a may be unused"
                                        (syntax-e (get-prop var '#%lin-orig)))
                             (get-prop var '#%lin-orig))))
 
@@ -161,6 +163,33 @@
       (⇒ ~ (L× l1 l2))]])
 
 
+(define-typed-syntax ty/lambda
+  [(_ (x (~datum :) t:type) e) ≫
+   #:with τ #'t.norm
+   #:with l/x (if (Lin? #'τ)
+                  (mk-lvar #'x)
+                  #'LUnit)
+   #:with l/x/inv (invol #'l/x)
+   [[x ≫ x- : τ ~ l/x/inv] ⊢ e ≫ e- (⇒ : σ) (⇒ ~ l)]
+   --------
+   [⊢ (lambda- (x-) e-)
+      (⇒ : (→ τ σ))
+      (⇒ ~ (L& LUnit
+               (L× l/x l)))]])
+
+(define-typed-syntax ty/lambda-once
+  [(_ (x (~datum :) t:type) e) ≫
+   #:with τ #'t.norm
+   #:with l/x (if (Lin? #'τ)
+                  (mk-lvar #'x)
+                  #'LUnit)
+   #:with l/x/inv (invol #'l/x)
+   [[x ≫ x- : τ ~ l/x/inv] ⊢ e ≫ e- (⇒ : σ) (⇒ ~ l)]
+   --------
+   [⊢ (lambda- (x-) e-)
+      (⇒ : (Lin (→ τ σ)))
+      (⇒ ~ (L× l/x l))]])
+
 
 
 (define-typed-syntax (top-interact . e) ≫
@@ -182,12 +211,16 @@
     [_ #'(#%module-begin)]))
 
 
-(provide (type-out Int Bool ×)
+(provide (type-out Int Bool Unit Lin × →)
          (rename-out [ty/datum #%datum]
                      [ty/box box]
                      [ty/let let]
                      [ty/if if]
                      [ty/begin begin]
                      [ty/tup tup]
+                     [ty/lambda lambda]
+                     [ty/lambda λ]
+                     [ty/lambda-once lambda-once]
+                     [ty/lambda-once λ-once]
                      [top-interact #%top-interaction]
                      [mod-begin #%module-begin]))
