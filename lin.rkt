@@ -4,6 +4,7 @@
                      ))
 
 
+;; types ;;
 ; basic types
 (define-base-type Unit)
 (define-base-type Int)
@@ -18,9 +19,10 @@
 (define-type-constructor Lin #:arity = 1)
 
 
-; linear expressions. these are collected & evaluated after inference.
+;; linear expressions, which are collected & evaluated after inference. ;;
 ; all instances of L⇑ and L⇓ in a linear expression must match to be
-; considered "well-formed".
+; considered "well-formed". linear variables correspond to L⇑ and L⇓
+; expressions with a syntax-property #%lin-uniq to differentiate them
 (define-base-type L⇑)
 (define-base-type L⇓)
 
@@ -38,6 +40,14 @@
 ;          LUnit)             is well formed
 ;      (L& {L⇑ X} {L⇓ X})     is not
 (define-type-constructor L& #:arity > 0)
+
+; this is rougly based on linear logic from https://en.wikipedia.org/wiki/Linear_logic
+; where L× is multiplicative disjunction (⅋)
+;       L& is additive conjunction (&)
+;       LUnit is the multiplicative unit (1)
+;       L⇑ is the dual (superscript ⊥) of L⇓
+; as an example, binding a linear variable forms a linear implication, e.g.
+; (let (x (box 3)) x)   ~>   (L× {L⇑ x} {L⇓ x}) ≡ x⊥ ⅋ x ≡ x -o x
 
 
 
@@ -84,8 +94,9 @@
   ; paths lead to ⇑ being matched with ⇓). raises a syntax error
   ; if not well formed, returns (void) if it is.
   (define (check-well-formed l)
-    (define (balance var ctx)
-      ; assuming that UP gets added first, followed by successive DOWNs
+    ; add the variable to the context, balancing ⇑ and ⇓ occurences. note
+    ; that we assume here that (for each var) a single ⇑ will be added, followed by some ⇓'s
+    (define (add/balance var ctx)
       (syntax-parse var
         [~L⇑
          (hash-set ctx (get-prop var '#%lin-uniq) var)]
@@ -97,7 +108,8 @@
          (hash-remove ctx (get-prop var '#%lin-uniq))]))
 
     (define (finished ctx)
-      ; any remaining variables will cause an error
+      ; any remaining ⇑'s will cause an error due to the lack of matching ⇓
+      ; i think that if this function was empty we would have an "affine" type system
       (for ([var (in-hash-values ctx)])
         (raise-syntax-error #f (format "linear variable ~a may be unused"
                                        (syntax-e (get-prop var '#%lin-orig)))
@@ -117,7 +129,7 @@
             (for ([l (in-list (syntax-e #'(l ...)))])
               (loop ctx (cons l exprs-)))]
            [_
-            (loop (balance e ctx) exprs-)])])))
+            (loop (add/balance e ctx) exprs-)])])))
 
   )
 
@@ -199,7 +211,10 @@
   --------
   [⊢ (lambda- (x-) e-)
      (⇒ : (→ τ σ))
-     (⇒ ~> (L& LUnit (L× l/x↑ l)))])
+     (⇒ ~> (L& LUnit (L× l/x↑ l)))
+     ; the L& expression prevents use of linear variables outside the
+     ; body of the lambda
+     ])
 
 
 (define-typed-syntax (ty/lambda-once (x:id (~datum :) t:type) e) ≫
