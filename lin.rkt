@@ -20,11 +20,11 @@
 
 
 ;; linear expressions, which are collected & evaluated after inference. ;;
-; all instances of L⇑ and L⇓ in a linear expression must match to be
-; considered "well-formed". linear variables correspond to L⇑ and L⇓
-; expressions with a syntax-property #%lin-uniq to differentiate them
-(define-base-type L⇑)
-(define-base-type L⇓)
+; every L⇑ that occurs in a linear expression must have exactly one corresponding
+; L⇓ to be considered "well-formed". bound identifiers translate to L⇑ and L⇓
+; expressions by syntax-properties '#%lin-uniq (for differentiating them), and
+; property '#%lin-orig (for producing errors messages).
+(define-base-types L⇑ L⇓)
 
 ; LUnit is well-formed as long as the rest of the expression is
 (define-base-type LUnit)
@@ -47,7 +47,7 @@
 ;       LUnit is the multiplicative unit (1)
 ;       L⇑ is the dual (superscript ⊥) of L⇓
 ; as an example, binding a linear variable forms a linear implication, e.g.
-; (let (x (box 3)) x)   ~>   (L× {L⇑ x} {L⇓ x}) ≡ x⊥ ⅋ x ≡ x -o x
+; (let (x (box 3)) x)   ~>   (L× {L⇑ x} {L⇓ x}) ≡ x⊥ ⅋ x ≡ x -o x  (is well formed)
 
 
 
@@ -135,6 +135,9 @@
 
 
 
+; these first rules are straightforward. datum do not expend any
+; resource. box, begin and tup use the resources of all their sub expressions.
+
 (define-typed-syntax ty/datum
   [(_ . k:integer) ≫
    --------
@@ -152,7 +155,7 @@
      (⇒ ~> l)])
 
 
-(define-typed-syntax (ty/begin e ...) ≫
+(define-typed-syntax (ty/begin e ...+) ≫
   [⊢ e ≫ e- (⇒ : τ) (⇒ ~> l)] ...
   #:with σ (last (syntax-e #'(τ ...)))
   --------
@@ -161,20 +164,21 @@
      (⇒ ~> (L× l ...))])
 
 
-(define-typed-syntax ty/let
-  [(_ (x:id rhs) e) ≫
-   [⊢ rhs ≫ rhs- (⇒ : τ) (⇒ ~> l1)]
-   #:with l/x↑ (if (Lin? #'τ) (mk-⇑ #'x) #'LUnit)
-   #:with l/x↓ (lin-flip #'l/x↑)
-   [[x ≫ x- : τ ~> l/x↓] ⊢ e ≫ e- (⇒ : σ) (⇒ ~> l2)]
-   --------
-   [⊢ (let- ([x- rhs-]) e-)
-      (⇒ : σ)
-      (⇒ ~> (L× l/x↑ l1 l2))]]
+(define-typed-syntax (ty/tup e1 e2) ≫
+  [⊢ e1 ≫ e1- (⇒ : τ1) (⇒ ~> l1)]
+  [⊢ e2 ≫ e2- (⇒ : τ2) (⇒ ~> l2)]
+  #:with σ #'(× τ1 τ2)
+  --------
+  [⊢ (#%app- list e1- e2-)
+     ; make the pair linear if any of the elements are
+     (⇒ : #,(if (or (Lin? #'τ1) (Lin? #'τ2))
+                #'(Lin σ)
+                #'σ))
+     (⇒ ~> (L× l1 l2))])
 
-  ; TODO: sugar forms
-  )
 
+; the if rule combines the result of both branches
+; with L& to ensure that they have the same effects
 
 (define-typed-syntax (ty/if c e1 e2) ≫
   [⊢ c ≫ c- (⇒ : τ) (⇒ ~> l1)]
@@ -191,17 +195,26 @@
      (⇒ ~> (L× l1 (L& l2 l3)))])
 
 
-(define-typed-syntax (ty/tup e1 e2) ≫
-  [⊢ e1 ≫ e1- (⇒ : τ1) (⇒ ~> l1)]
-  [⊢ e2 ≫ e2- (⇒ : τ2) (⇒ ~> l2)]
-  #:with σ #'(× τ1 τ2)
-  --------
-  [⊢ (#%app- list e1- e2-)
-     (⇒ : #,(if (or (Lin? #'τ1) (Lin? #'τ2))
-                #'(Lin σ)
-                #'σ))
-     (⇒ ~> (L× l1 l2))])
+; let possibly introduces a L⇑/L⇓ pair if the bound variable
+; has a linear type
 
+(define-typed-syntax ty/let
+  [(_ (x:id rhs) e) ≫
+   [⊢ rhs ≫ rhs- (⇒ : τ) (⇒ ~> l1)]
+   #:with l/x↑ (if (Lin? #'τ) (mk-⇑ #'x) #'LUnit)
+   #:with l/x↓ (lin-flip #'l/x↑)
+   [[x ≫ x- : τ ~> l/x↓] ⊢ e ≫ e- (⇒ : σ) (⇒ ~> l2)]
+   --------
+   [⊢ (let- ([x- rhs-]) e-)
+      (⇒ : σ)
+      (⇒ ~> (L× l/x↑ l1 l2))]]
+
+  ; TODO: sugar forms
+  )
+
+
+; lambda is unrestricted, so a trick with L& must be applied to ensure
+; that it doesn't cause any linear effects
 
 (define-typed-syntax (ty/lambda (x:id (~datum :) t:type) e) ≫
   #:with τ #'t.norm
@@ -216,6 +229,8 @@
      ; body of the lambda
      ])
 
+
+; lambda-once does not use L& and instead produces the linear type (Lin (→ τ σ))
 
 (define-typed-syntax (ty/lambda-once (x:id (~datum :) t:type) e) ≫
   #:with τ #'t.norm
