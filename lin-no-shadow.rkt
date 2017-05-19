@@ -261,8 +261,10 @@
   [⊢ e ≫ e- (⇒ : τ) (⇒ ~> l)] ...
   #:do [(for ([l (in-list (syntax-e #'(l ...)))])
           (check-well-formed l))]
+  #:with (τ->s ...) (map type->str (syntax-e #'(τ ...)))
   --------
-  [≻ (#%module-begin e- ...)])
+  [≻ (#%module-begin
+      (#%app- printf "~s : ~a\n" e- 'τ->s) ...)])
 
 
 (define-typed-syntax (top-interact . e) ≫
