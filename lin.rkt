@@ -3,6 +3,20 @@
          (for-syntax syntax/parse
                      ))
 
+(provide (type-out Int Bool Unit Lin × →)
+         (rename-out [ty/datum #%datum]
+                     [ty/box box]
+                     [ty/let let]
+                     [ty/if if]
+                     [ty/begin begin]
+                     [ty/tup tup]
+                     [ty/lambda lambda]
+                     [ty/lambda λ]
+                     [ty/lambda-once lambda-once]
+                     [ty/lambda-once λ-once]
+                     [top-interact #%top-interaction]
+                     [mod-begin #%module-begin]))
+
 
 ;; types ;;
 ; basic types
@@ -207,7 +221,7 @@
    --------
    [⊢ (let- ([x- rhs-]) e-)
       (⇒ : σ)
-      (⇒ ~> (L× l/x↑ l1 l2))]]
+      (⇒ ~> (L× l1 l/x↑ l2))]]
 
   ; TODO: sugar forms
   )
@@ -262,21 +276,3 @@
   [≻ (#%app- printf "~a : ~a\n"
              e-
              't->s)])
-
-
-
-
-
-(provide (type-out Int Bool Unit Lin × →)
-         (rename-out [ty/datum #%datum]
-                     [ty/box box]
-                     [ty/let let]
-                     [ty/if if]
-                     [ty/begin begin]
-                     [ty/tup tup]
-                     [ty/lambda lambda]
-                     [ty/lambda λ]
-                     [ty/lambda-once lambda-once]
-                     [ty/lambda-once λ-once]
-                     [top-interact #%top-interaction]
-                     [mod-begin #%module-begin]))
